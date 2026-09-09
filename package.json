@@ -1,0 +1,28 @@
+{
+  "name": "due",
+  "version": "0.3.2",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "node scripts/lint.mjs",
+    "test": "tsx --test tests/*.test.ts",
+    "db:migrate": "tsx src/db/migrate-cli.ts",
+    "start": "tsx src/server.ts",
+    "reminders:work": "tsx src/reminders/work-cli.ts",
+    "build": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.44.5",
+    "postgres": "^3.4.7"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.3.4",
+    "@types/node": "^22.15.0",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3"
+  }
+}

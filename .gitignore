@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+vendor/
+
+# Environment & secrets (never commit real values)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+id_rsa*
+id_ed25519*
+credentials.json
+.secrets/
+
+# Runtime / local data
+*.log
+*.db
+*.sqlite
+*.sqlite3
+pgdata/
+.pglite/
+pglite-data/
+data/
+tmp/
+/tmp/
+testwrite
+*.pid
+
+# Build / coverage / OS
+dist/
+build/
+coverage/
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Package manager noise
+npm-debug.log*
+yarn-error.log*
+.pnpm-store/

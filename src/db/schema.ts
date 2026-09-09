@@ -1,0 +1,143 @@
+
+import { pgTable, uuid, text, timestamp, boolean, integer, bigint, date, uniqueIndex, index } from "drizzle-orm/pg-core";
+
+export const users = pgTable("users", {
+  id: uuid("id").primaryKey(),
+  email: text("email").notNull(),
+  passwordHash: text("password_hash").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+});
+export const businesses = pgTable("businesses", {
+  id: uuid("id").primaryKey(),
+  name: text("name").notNull(),
+  email: text("email").notNull(),
+  phone: text("phone"),
+  timezone: text("timezone").notNull(),
+  currency: text("currency").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+});
+export const memberships = pgTable("memberships", {
+  id: uuid("id").primaryKey(),
+  businessId: uuid("business_id").notNull(),
+  userId: uuid("user_id").notNull(),
+  role: text("role").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+});
+export const sessions = pgTable("sessions", {
+  id: uuid("id").primaryKey(),
+  userId: uuid("user_id").notNull(),
+  tokenHash: text("token_hash").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+});
+export const customers = pgTable("customers", {
+  id: uuid("id").primaryKey(),
+  businessId: uuid("business_id").notNull(),
+  name: text("name").notNull(),
+  companyName: text("company_name"),
+  phone: text("phone"),
+  email: text("email"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+});
+export const receivables = pgTable("receivables", {
+  id: uuid("id").primaryKey(),
+  businessId: uuid("business_id").notNull(),
+  customerId: uuid("customer_id").notNull(),
+  description: text("description").notNull(),
+  originalAmountMinor: bigint("original_amount_minor", { mode: "bigint" }).notNull(),
+  currency: text("currency").notNull(),
+  dueOn: date("due_on").notNull(),
+  cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+  cancelledByUserId: uuid("cancelled_by_user_id"),
+  cancellationReason: text("cancellation_reason"),
+  createdByUserId: uuid("created_by_user_id").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+  idempotencyKey: text("idempotency_key").notNull(),
+}, (t) => [uniqueIndex("receivables_idempotency_uq").on(t.businessId, t.idempotencyKey)]);
+export const payments = pgTable("payments", {
+  id: uuid("id").primaryKey(),
+  businessId: uuid("business_id").notNull(),
+  receivableId: uuid("receivable_id").notNull(),
+  amountMinor: bigint("amount_minor", { mode: "bigint" }).notNull(),
+  currency: text("currency").notNull(),
+  paidOn: date("paid_on").notNull(),
+  method: text("method"),
+  note: text("note"),
+  status: text("status").notNull(),
+  recordedByUserId: uuid("recorded_by_user_id").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  idempotencyKey: text("idempotency_key").notNull(),
+}, (t) => [uniqueIndex("payments_idempotency_uq").on(t.businessId, t.idempotencyKey), index("payments_receivable_idx").on(t.businessId, t.receivableId)]);
+export const activityEvents = pgTable("activity_events", {
+  id: uuid("id").primaryKey(),
+  businessId: uuid("business_id").notNull(),
+  receivableId: uuid("receivable_id"),
+  customerId: uuid("customer_id"),
+  type: text("type").notNull(),
+  actorUserId: uuid("actor_user_id"),
+  payload: text("payload").notNull(),
+  occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+});
+export const reminderRules = pgTable("reminder_rules", {
+  id: uuid("id").primaryKey(),
+  businessId: uuid("business_id").notNull(),
+  name: text("name").notNull(),
+  isDefault: boolean("is_default").notNull(),
+  enabled: boolean("enabled").notNull(),
+  offsetsJson: text("offsets_json").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+});
+export const reminders = pgTable("reminders", {
+  id: uuid("id").primaryKey(),
+  businessId: uuid("business_id").notNull(),
+  receivableId: uuid("receivable_id").notNull(),
+  ruleId: uuid("rule_id").notNull(),
+  scheduleKey: text("schedule_key").notNull(),
+  offsetDays: integer("offset_days").notNull(),
+  scheduledFor: timestamp("scheduled_for", { withTimezone: true }).notNull(),
+  status: text("status").notNull(),
+  attemptCount: integer("attempt_count").notNull(),
+  nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }),
+  channel: text("channel").notNull(),
+  lastBody: text("last_body"),
+  cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+  cancelReason: text("cancel_reason"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+});
+export const reminderAttempts = pgTable("reminder_attempts", {
+  id: uuid("id").primaryKey(),
+  businessId: uuid("business_id").notNull(),
+  reminderId: uuid("reminder_id").notNull(),
+  attemptNumber: integer("attempt_number").notNull(),
+  provider: text("provider").notNull(),
+  startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  status: text("status").notNull(),
+  failureCode: text("failure_code"),
+  failureMessage: text("failure_message"),
+  providerMessageId: text("provider_message_id"),
+  channel: text("channel").notNull(),
+  destination: text("destination"),
+  subject: text("subject"),
+  bodySnapshot: text("body_snapshot"),
+  retriable: boolean("retriable"),
+  acceptance: text("acceptance"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+});
+export const reminderDeliveryEvents = pgTable("reminder_delivery_events", {
+  id: uuid("id").primaryKey(),
+  businessId: uuid("business_id").notNull(),
+  reminderAttemptId: uuid("reminder_attempt_id"),
+  provider: text("provider").notNull(),
+  providerEventId: text("provider_event_id").notNull(),
+  eventType: text("event_type").notNull(),
+  payload: text("payload").notNull(),
+  occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+  receivedAt: timestamp("received_at", { withTimezone: true }).notNull(),
+});
