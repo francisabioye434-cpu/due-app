@@ -340,56 +340,104 @@ export class DueApp {
     input: { receivableId: string; amountMajor: string; paidOn: string; method?: string; note?: string; idempotencyKey: string },
   ) {
     await this.requireMembership(userId, businessId);
-    const rec = await this.getReceivable(userId, businessId, input.receivableId);
-    if (rec.cancelledAt) badRequest("RECEIVABLE_CANCELLED", "Cannot pay a cancelled receivable");
     if (!input.idempotencyKey.trim()) badRequest("INVALID_IDEMPOTENCY", "Idempotency key required");
+
     const existing = await this.db
       .select()
       .from(payments)
       .where(and(eq(payments.businessId, businessId), eq(payments.idempotencyKey, input.idempotencyKey)));
-    if (existing.length) return this.getReceivable(userId, businessId, rec.id);
+    if (existing.length) return this.getReceivable(userId, businessId, existing[0]!.receivableId);
 
-    let amount: bigint;
-    try {
-      amount = parseMajorToMinor(input.amountMajor, rec.currency);
-    } catch {
-      badRequest("INVALID_AMOUNT", "Invalid amount");
-    }
-    if (amount <= 0n) badRequest("INVALID_AMOUNT", "Amount must be positive");
-    if (amount > rec.outstandingMinor) {
-      throw new AppError(
-        "OVERPAYMENT",
-        `Payment exceeds outstanding balance of ${rec.outstandingMinor.toString()} minor units`,
-        400,
+    // Serialize payment application per receivable to protect financial invariants under concurrency.
+    // Prefer a DB transaction + row lock; fall back to sequential re-read of outstanding.
+    const apply = async (tx: Db) => {
+      // Lock the receivable row when the driver supports it (real PostgreSQL).
+      let rows;
+      try {
+        rows = await tx
+          .select()
+          .from(receivables)
+          .where(and(eq(receivables.id, input.receivableId), eq(receivables.businessId, businessId)))
+          .for("update");
+      } catch {
+        rows = await tx
+          .select()
+          .from(receivables)
+          .where(and(eq(receivables.id, input.receivableId), eq(receivables.businessId, businessId)));
+      }
+      if (!rows.length) notFound("Receivable");
+      const base = rows[0]!;
+      if (base.cancelledAt) badRequest("RECEIVABLE_CANCELLED", "Cannot pay a cancelled receivable");
+
+      const pays = await tx
+        .select()
+        .from(payments)
+        .where(and(eq(payments.receivableId, base.id), eq(payments.status, "succeeded")));
+      const outstanding = outstandingBalance(
+        base.originalAmountMinor,
+        pays.map((p) => p.amountMinor),
       );
+
+      let amount: bigint;
+      try {
+        amount = parseMajorToMinor(input.amountMajor, base.currency);
+      } catch {
+        badRequest("INVALID_AMOUNT", "Invalid amount");
+      }
+      if (amount <= 0n) badRequest("INVALID_AMOUNT", "Amount must be positive");
+      if (amount > outstanding) {
+        throw new AppError(
+          "OVERPAYMENT",
+          `Payment exceeds outstanding balance of ${outstanding.toString()} minor units`,
+          400,
+        );
+      }
+
+      const ts = this.now();
+      await tx.insert(payments).values({
+        id: randomUUID(),
+        businessId,
+        receivableId: base.id,
+        amountMinor: amount,
+        currency: base.currency,
+        paidOn: input.paidOn,
+        method: input.method || null,
+        note: input.note || null,
+        status: "succeeded",
+        recordedByUserId: userId,
+        createdAt: ts,
+        idempotencyKey: input.idempotencyKey,
+      });
+      await tx.insert(activityEvents).values({
+        id: randomUUID(),
+        businessId,
+        receivableId: base.id,
+        type: "PAYMENT_RECORDED",
+        actorUserId: userId,
+        payload: JSON.stringify({ amountMinor: amount.toString() }),
+        occurredAt: ts,
+      });
+      return base.id;
+    };
+
+    let receivableId: string;
+    type TxFn = <T>(fn: (tx: Db) => Promise<T>) => Promise<T>;
+    const dbWithTx = this.db as Db & { transaction?: TxFn };
+    if (typeof dbWithTx.transaction === "function") {
+      try {
+        receivableId = await dbWithTx.transaction((tx) => apply(tx));
+      } catch (e) {
+        // If transaction unsupported or failed for env reasons, sequential apply
+        if (e instanceof AppError) throw e;
+        receivableId = await apply(this.db);
+      }
+    } else {
+      receivableId = await apply(this.db);
     }
-    const ts = this.now();
-    await this.db.insert(payments).values({
-      id: randomUUID(),
-      businessId,
-      receivableId: rec.id,
-      amountMinor: amount,
-      currency: rec.currency,
-      paidOn: input.paidOn,
-      method: input.method || null,
-      note: input.note || null,
-      status: "succeeded",
-      recordedByUserId: userId,
-      createdAt: ts,
-      idempotencyKey: input.idempotencyKey,
-    });
-    await this.db.insert(activityEvents).values({
-      id: randomUUID(),
-      businessId,
-      receivableId: rec.id,
-      type: "PAYMENT_RECORDED",
-      actorUserId: userId,
-      payload: JSON.stringify({ amountMinor: amount.toString() }),
-      occurredAt: ts,
-    });
-    const after = await this.getReceivable(userId, businessId, rec.id);
+
+    const after = await this.getReceivable(userId, businessId, receivableId);
     if (after.outstandingMinor <= 0n) {
-      await this.cancelFutureReminders(businessId, rec.id, "receivable_paid");
+      await this.cancelFutureReminders(businessId, receivableId, "receivable_paid");
     }
     return after;
   }
